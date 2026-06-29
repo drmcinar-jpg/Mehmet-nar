@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mehmet Nar - Kayıt Formu</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background: #f4f6f8;
+      margin: 0;
+      padding: 16px;
+      color: #1f2937;
+    }
+    .kart {
+      max-width: 480px;
+      margin: 0 auto;
+      background: #fff;
+      border-radius: 14px;
+      box-shadow: 0 4px 18px rgba(0,0,0,.08);
+      padding: 22px;
+    }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    .alt { color: #6b7280; font-size: 13px; margin: 0 0 18px; }
+    label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 5px; }
+    input, textarea {
+      width: 100%;
+      padding: 11px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 9px;
+      font-size: 15px;
+      font-family: inherit;
+    }
+    input:focus, textarea:focus { outline: none; border-color: #b91c1c; }
+    textarea { min-height: 70px; resize: vertical; }
+    .ikili { display: flex; gap: 10px; }
+    .ikili > div { flex: 1; }
+    button {
+      width: 100%;
+      margin-top: 20px;
+      padding: 13px;
+      background: #b91c1c;
+      color: #fff;
+      border: none;
+      border-radius: 9px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:disabled { opacity: .6; cursor: not-allowed; }
+    #mesaj { margin-top: 14px; padding: 12px; border-radius: 9px; font-size: 14px; display: none; }
+    #mesaj.basari { display: block; background: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; }
+    #mesaj.hata { display: block; background: #fef2f2; color: #991b1b; border: 1px solid #fca5a5; }
+  </style>
+</head>
+<body>
+  <div class="kart">
+    <h1>🌰 Mehmet Nar — Kayıt</h1>
+    <p class="alt">Bilgileri girip "Kaydet"e bas. Veriler Google E-Tablo'ya yazılır.</p>
+
+    <form id="form">
+      <label for="ad">Ad Soyad *</label>
+      <input id="ad" name="ad" type="text" required autocomplete="off">
+
+      <label for="telefon">Telefon</label>
+      <input id="telefon" name="telefon" type="tel" autocomplete="off">
+
+      <label for="urun">Ürün</label>
+      <input id="urun" name="urun" type="text" autocomplete="off">
+
+      <div class="ikili">
+        <div>
+          <label for="adet">Adet</label>
+          <input id="adet" name="adet" type="number" min="0" step="1">
+        </div>
+        <div>
+          <label for="tutar">Tutar (TL)</label>
+          <input id="tutar" name="tutar" type="number" min="0" step="0.01">
+        </div>
+      </div>
+
+      <label for="aciklama">Açıklama</label>
+      <textarea id="aciklama" name="aciklama"></textarea>
+
+      <button id="btn" type="submit">Kaydet</button>
+    </form>
+
+    <div id="mesaj"></div>
+  </div>
+
+  <script>
+    var form = document.getElementById('form');
+    var btn = document.getElementById('btn');
+    var mesaj = document.getElementById('mesaj');
+
+    function goster(tip, metin) {
+      mesaj.className = tip;
+      mesaj.textContent = metin;
+    }
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();              // sayfanın yeniden yüklenmesini engelle
+      btn.disabled = true;
+      btn.textContent = 'Kaydediliyor...';
+      goster('', '');
+
+      var data = {
+        ad: form.ad.value,
+        telefon: form.telefon.value,
+        urun: form.urun.value,
+        adet: form.adet.value,
+        tutar: form.tutar.value,
+        aciklama: form.aciklama.value
+      };
+
+      google.script.run
+        .withSuccessHandler(function (sonuc) {
+          btn.disabled = false;
+          btn.textContent = 'Kaydet';
+          goster('basari', '✅ ' + (sonuc && sonuc.mesaj ? sonuc.mesaj : 'Kaydedildi!'));
+          form.reset();
+        })
+        .withFailureHandler(function (err) {
+          btn.disabled = false;
+          btn.textContent = 'Kaydet';
+          goster('hata', '❌ ' + (err && err.message ? err.message : 'Bir hata oluştu.'));
+        })
+        .kaydet(data);
+    });
+  </script>
+</body>
+</html>
