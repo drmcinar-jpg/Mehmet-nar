@@ -41,7 +41,7 @@ xcode-select --install
 
 | İşletim sistemi | Yapılacak |
 |---|---|
-| macOS | **`Yayin-Okuma.command`** dosyasına çift tıklayın |
+| macOS | **`Yayin-Okuma.command`** dosyasına çift tıklayın (`.bat` Windows içindir, Mac'te çalışmaz) |
 | Windows | **`Yayin-Okuma.bat`** dosyasına çift tıklayın |
 | Terminal | `python3 calistir.py` |
 
@@ -74,9 +74,9 @@ Her makale için üretilen özet şunları içerir:
 - **Klinik karşılığı** — tüp bebek/kadın doğum pratiğinde ne değişir
 - Konu etiketleri ve kanıt düzeyi rozeti
 
-Bunun için bir **API anahtarı** gerekir. **İlk çalıştırmada program bunu size
-sorar** — anahtarı yapıştırıp Enter'a basmanız yeterli, kendisi `ayarlar.json`
-dosyasına kaydeder.
+Bunun için bir **API anahtarı** gerekir. **İlk çalıştırmada program önce hangi
+servisi kullanacağınızı, sonra anahtarı sorar** — numarayı seçip anahtarı
+yapıştırmanız yeterli, kendisi `ayarlar.json` dosyasına kaydeder.
 
 ### Hangi servisi kullanacağınızı seçebilirsiniz
 

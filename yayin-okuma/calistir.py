@@ -40,20 +40,28 @@ def yaz(mesaj=""):
     print(mesaj, flush=True)
 
 
-ANAHTAR_METNI = """
+SECIM_METNI = """
   ------------------------------------------------------------------
    TÜRKÇE ÖZET
 
-   Makaleleri Türkçe özetleyebilmem için %(ad)s API anahtarı gerekiyor.
-   Anahtar şuradan alınır (kullandığın kadar öde):
-
-       %(adres)s
-
-   Anahtarı yapıştırıp Enter'a basın.
+   Makaleleri Türkçe özetleyebilmem için bir yapay zeka servisinin API
+   anahtarı gerekiyor. Hangisini kullanacaksınız?
+%(secenekler)s
    Boş bırakıp Enter'a basarsanız Türkçe özet kapatılır ve makalelerin
    kendi İngilizce sonuç bölümleri gösterilir (hiçbir ücret çıkmaz).
   ------------------------------------------------------------------
 """
+
+# Ilk calistirmada sunulan secenekler (sirasi onemli: 1, 2, ...)
+SECENEKLER = ["anthropic", "deepseek"]
+
+
+def _secenek_listesi():
+    satirlar = []
+    for i, adi in enumerate(SECENEKLER, 1):
+        bilgi = ozet_modulu.saglayici_bilgisi(adi)
+        satirlar.append("\n     %d) %-20s anahtar: %s" % (i, bilgi["ad"], bilgi["adres"]))
+    return "".join(satirlar) + "\n"
 
 
 def saglayici_kur(ayar, uyari=None):
@@ -73,33 +81,54 @@ def saglayici_kur(ayar, uyari=None):
 
 
 def anahtar_iste(ayar, ozetsiz):
-    """Turkce ozet acikken anahtar yoksa, ilk calistirmada bir kez sorar."""
+    """Turkce ozet acikken anahtar yoksa, ilk calistirmada servisi ve anahtari sorar."""
     if ozetsiz or not ayar.get("yapay_zeka_ozet"):
         return
-    saglayici = saglayici_kur(ayar)
-    if saglayici["anahtar"]:
+    if saglayici_kur(ayar)["anahtar"]:
         return
     if not sys.stdin.isatty():
         return  # cron/otomatik calistirma: soru sorma, sessizce yedege dus
 
-    yaz(ANAHTAR_METNI % {
-        "ad": saglayici["ad"],
-        "adres": saglayici["adres"] or "(sağlayıcınızın anahtar sayfası)",
-    })
+    yaz(SECIM_METNI % {"secenekler": _secenek_listesi()})
+
+    # 1) Hangi servis?
     try:
-        cevap = input("  Anahtar: ").strip()
+        secim = input("  Servis numarası [1]: ").strip()
+    except EOFError:
+        return
+    if secim == "":
+        secim = "1"
+    if not secim.isdigit() or not (1 <= int(secim) <= len(SECENEKLER)):
+        yaz()
+        yaz("  Geçersiz seçim, Türkçe özet şimdilik atlandı.")
+        yaz("  Daha sonra: python3 calistir.py --saglayici deepseek --anahtar ...")
+        yaz()
+        return
+
+    adi = SECENEKLER[int(secim) - 1]
+    if adi != ayar.get("saglayici"):
+        ayar["saglayici"] = adi
+        ayar["model"] = ""      # onceki servisin model adi gecersiz olur
+    bilgi = ozet_modulu.saglayici_bilgisi(adi)
+
+    # 2) Anahtar
+    yaz()
+    yaz("  %s seçildi. Anahtar sayfası: %s" % (bilgi["ad"], bilgi["adres"]))
+    try:
+        cevap = input("  Anahtarı yapıştırın (boş = özet kapalı): ").strip()
     except EOFError:
         return
     yaz()
 
-    onek = saglayici["onek"]
+    onek = bilgi["onek"]
     if cevap and (not onek or cevap.startswith(onek)):
         ayar["api_anahtari"] = cevap
         ayar_modulu.kaydet(KOK, ayar)
-        yaz("  Anahtar ayarlar.json dosyasına kaydedildi. Türkçe özetler açık.")
+        yaz("  Kaydedildi → %s · %s. Türkçe özetler açık."
+            % (bilgi["ad"], bilgi["model"]))
     elif cevap:
         yaz("  Bu bir %s anahtarına benzemiyor (%s... ile başlamalı)."
-            % (saglayici["ad"], onek))
+            % (bilgi["ad"], onek))
         yaz("  Şimdilik atlandı, bir dahaki sefere yine sorulacak.")
     else:
         ayar["yapay_zeka_ozet"] = False
