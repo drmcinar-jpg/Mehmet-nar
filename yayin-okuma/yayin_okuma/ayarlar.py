@@ -21,13 +21,26 @@ VARSAYILAN = {
     "_dergi_basina_azami_not": "Bir dergiden tek seferde cekilecek azami makale sayisi.",
 
     "yapay_zeka_ozet": True,
-    "anthropic_api_key": "",
-    "_anthropic_not": (
-        "Turkce ozet icin Anthropic API anahtari. Bos birakilirsa ANTHROPIC_API_KEY "
-        "ortam degiskenine bakilir; o da yoksa ozetler makalenin kendi Sonuc bolumunden "
-        "cikarilir (internet/ucret gerekmez)."
+
+    "saglayici": "anthropic",
+    "_saglayici_not": (
+        "Turkce ozeti hangi servis uretsin: 'anthropic' (Claude), 'deepseek' "
+        "ya da 'openai-uyumlu' (bu durumda api_ucu ve model'i siz yazarsiniz)."
     ),
-    "model": "claude-sonnet-5",
+    "api_anahtari": "",
+    "_api_anahtari_not": (
+        "Secilen saglayicinin API anahtari. Bos birakilirsa saglayicinin ortam "
+        "degiskenine bakilir (ANTHROPIC_API_KEY / DEEPSEEK_API_KEY / OPENAI_API_KEY); "
+        "o da yoksa ozetler makalenin kendi Sonuc bolumunden cikarilir "
+        "(internet/ucret gerekmez)."
+    ),
+    "model": "",
+    "_model_not": "Bos birakilirsa saglayicinin varsayilani kullanilir.",
+    "api_ucu": "",
+    "_api_ucu_not": (
+        "Bos birakilirsa saglayicinin varsayilan adresi kullanilir. "
+        "'openai-uyumlu' icin ornek: https://api.groq.com/openai/v1/chat/completions"
+    ),
     "calistirma_basina_azami_ozet": 80,
     "_ozet_limit_not": "Beklenmedik maliyeti onlemek icin tek calistirmada uretilecek azami yapay zeka ozeti. Ozetler onbellege alinir, ayni makale iki kez ozetlenmez.",
 
@@ -59,6 +72,14 @@ def yukle(kok):
     ayar = dict(VARSAYILAN)
     ayar.update(kullanici)
 
+    # Eski surumden gecis: anthropic_api_key -> api_anahtari
+    eski = (kullanici.get("anthropic_api_key") or "").strip()
+    if eski and not (ayar.get("api_anahtari") or "").strip():
+        ayar["api_anahtari"] = eski
+        ayar["saglayici"] = ayar.get("saglayici") or "anthropic"
+    ayar.pop("anthropic_api_key", None)
+    ayar.pop("_anthropic_not", None)
+
     # Program guncellenince eklenen anahtarlari dosyaya da yaz
     if set(ayar) != set(kullanici):
         kaydet(kok, ayar)
@@ -70,8 +91,10 @@ def kaydet(kok, ayar):
         json.dump(ayar, f, ensure_ascii=False, indent=2)
 
 
-def anthropic_anahtari(ayar):
-    return (ayar.get("anthropic_api_key") or os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+def ozet_anahtari(ayar, ortam_degiskeni="ANTHROPIC_API_KEY"):
+    """Ayarlardaki anahtar; yoksa saglayicinin ortam degiskeni."""
+    return (ayar.get("api_anahtari")
+            or os.environ.get(ortam_degiskeni) or "").strip()
 
 
 def ncbi_anahtari(ayar):

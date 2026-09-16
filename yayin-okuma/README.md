@@ -56,7 +56,9 @@ python3 calistir.py --gun 30      # sadece son 30 günü çek (daha hızlı)
 python3 calistir.py --ozetsiz     # yapay zeka özeti üretme (ücretsiz/hızlı)
 python3 calistir.py --acma        # raporu üret ama tarayıcıda açma
 python3 calistir.py --sifirla     # önbelleği yok say, her şeyi yeniden çek
-python3 calistir.py --anahtar sk-ant-...   # API anahtarını kaydet
+python3 calistir.py --anahtar sk-ant-...    # API anahtarını kaydet
+python3 calistir.py --saglayici deepseek   # özet sağlayıcısını değiştir
+python3 calistir.py --model claude-opus-5  # modeli değiştir
 ```
 
 ---
@@ -71,21 +73,46 @@ Her makale için üretilen özet şunları içerir:
 - **Klinik karşılığı** — tüp bebek/kadın doğum pratiğinde ne değişir
 - Konu etiketleri ve kanıt düzeyi rozeti
 
-Bunun için bir **Anthropic API anahtarı** gerekir. **İlk çalıştırmada program
-bunu size sorar** — anahtarı yapıştırıp Enter'a basmanız yeterli, kendisi
-`ayarlar.json` dosyasına kaydeder.
+Bunun için bir **API anahtarı** gerekir. **İlk çalıştırmada program bunu size
+sorar** — anahtarı yapıştırıp Enter'a basmanız yeterli, kendisi `ayarlar.json`
+dosyasına kaydeder.
 
-Anahtar https://console.anthropic.com/settings/keys adresinden alınır
-(kullandığın kadar öde). **claude.ai aboneliği bu anahtarı içermez**, ayrı
-bir hesaptır.
+### Hangi servisi kullanacağınızı seçebilirsiniz
 
-Sonradan girmek isterseniz:
+| Sağlayıcı | Ayar | Varsayılan model | Anahtar |
+|---|---|---|---|
+| Anthropic (Claude) | `anthropic` | `claude-sonnet-5` | [console.anthropic.com](https://console.anthropic.com/settings/keys) |
+| DeepSeek | `deepseek` | `deepseek-flash` (V4.1 Flash) | [platform.deepseek.com](https://platform.deepseek.com/api_keys) |
+| OpenAI uyumlu her servis | `openai-uyumlu` | siz yazarsınız | servisin kendi sayfası |
+
+DeepSeek'e geçmek için:
 
 ```
-python3 calistir.py --anahtar sk-ant-...
+python3 calistir.py --saglayici deepseek --anahtar sk-...
 ```
 
-`ANTHROPIC_API_KEY` ortam değişkenini de okur.
+Anthropic'e dönmek için:
+
+```
+python3 calistir.py --saglayici anthropic --anahtar sk-ant-...
+```
+
+Model değiştirmek için `--model claude-opus-5` gibi ekleyin; boş bırakırsanız
+sağlayıcının varsayılanı kullanılır. Sağlayıcıyı değiştirince eski model adı
+kendiliğinden sıfırlanır, yanlış eşleşme olmaz.
+
+**OpenAI uyumlu başka bir servis** (OpenAI, Groq, OpenRouter, yerel bir sunucu…)
+için `ayarlar.json` içinde:
+
+```json
+"saglayici": "openai-uyumlu",
+"api_ucu": "https://api.groq.com/openai/v1/chat/completions",
+"model": "llama-3.3-70b",
+"api_anahtari": "gsk_..."
+```
+
+Anahtarı ortam değişkeninden de okur: `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`
+veya `OPENAI_API_KEY`.
 
 **Anahtar yoksa program yine çalışır:** o zaman özet yerine makalenin kendi
 sonuç bölümü (İngilizce) gösterilir — hiçbir ücret çıkmaz. Human
@@ -167,8 +194,10 @@ açılır, e-postayla gönderilebilir.
 | `gecmis_gun` | Kaç günlük yayın çekilsin (varsayılan 92 = 3 ay) |
 | `dergi_basina_azami` | Bir dergiden çekilecek azami makale (varsayılan 400) |
 | `yapay_zeka_ozet` | Türkçe özet üretilsin mi |
-| `anthropic_api_key` | Türkçe özet için API anahtarı |
-| `model` | Kullanılacak model (varsayılan `claude-sonnet-5`) |
+| `saglayici` | `anthropic`, `deepseek` ya da `openai-uyumlu` |
+| `api_anahtari` | Seçili sağlayıcının API anahtarı |
+| `model` | Kullanılacak model (boş = sağlayıcının varsayılanı) |
+| `api_ucu` | Boş = sağlayıcının varsayılan adresi |
 | `calistirma_basina_azami_ozet` | Tek çalıştırmadaki azami özet sayısı |
 | `ncbi_api_key` | İsteğe bağlı; PubMed hızını 3→10 istek/sn çıkarır ([ücretsiz](https://account.ncbi.nlm.nih.gov/settings/)) |
 | `eposta` | NCBI'ın önerdiği iletişim adresi (isteğe bağlı) |
@@ -222,8 +251,8 @@ yanıt vermiyor. Program 4 kez tekrar dener; biraz sonra yine deneyin.
 **"… sınırına ulaşıldı" uyarısı** — Raporun üstünde çıkar; `dergi_basina_azami`
 değerini artırın.
 
-**Özetler İngilizce geliyor** — `anthropic_api_key` boş demektir.
-`python3 calistir.py --anahtar sk-ant-...` ile girin, sonra normal çalıştırın.
+**Özetler İngilizce geliyor** — `api_anahtari` boş demektir.
+`python3 calistir.py --anahtar ...` ile girin, sonra normal çalıştırın.
 Daha önce indirilmiş makaleler için Türkçe özet üretilmesini isterseniz
 `veri/makaleler.json` dosyasını silin (makaleler yeniden indirilir).
 

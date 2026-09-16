@@ -44,12 +44,10 @@ ANAHTAR_METNI = """
   ------------------------------------------------------------------
    TÜRKÇE ÖZET
 
-   Makaleleri Türkçe özetleyebilmem için bir Anthropic API anahtarı
-   gerekiyor. Anahtar şuradan alınır (kullandığın kadar öde):
+   Makaleleri Türkçe özetleyebilmem için %(ad)s API anahtarı gerekiyor.
+   Anahtar şuradan alınır (kullandığın kadar öde):
 
-       https://console.anthropic.com/settings/keys
-
-   Not: claude.ai aboneliği bu anahtarı içermez, ayrı bir hesaptır.
+       %(adres)s
 
    Anahtarı yapıştırıp Enter'a basın.
    Boş bırakıp Enter'a basarsanız Türkçe özet kapatılır ve makalelerin
@@ -58,28 +56,50 @@ ANAHTAR_METNI = """
 """
 
 
+def saglayici_kur(ayar, uyari=None):
+    """Ayarlardan {ad, anahtar, model, uc, bicim} sozlugu uretir."""
+    adi = (ayar.get("saglayici") or ozet_modulu.VARSAYILAN_SAGLAYICI).strip().lower()
+    bilgi = ozet_modulu.saglayici_bilgisi(adi)
+    return {
+        "adi": adi,
+        "ad": bilgi["ad"],
+        "adres": bilgi["adres"],
+        "onek": bilgi["onek"],
+        "anahtar": ayar_modulu.ozet_anahtari(ayar, bilgi["ortam"]),
+        "model": ozet_modulu.model_coz(adi, ayar.get("model"), uyari),
+        "uc": ozet_modulu.uc_coz(adi, ayar.get("api_ucu")),
+        "bicim": bilgi["bicim"],
+    }
+
+
 def anahtar_iste(ayar, ozetsiz):
     """Turkce ozet acikken anahtar yoksa, ilk calistirmada bir kez sorar."""
     if ozetsiz or not ayar.get("yapay_zeka_ozet"):
         return
-    if ayar_modulu.anthropic_anahtari(ayar):
+    saglayici = saglayici_kur(ayar)
+    if saglayici["anahtar"]:
         return
     if not sys.stdin.isatty():
         return  # cron/otomatik calistirma: soru sorma, sessizce yedege dus
 
-    yaz(ANAHTAR_METNI)
+    yaz(ANAHTAR_METNI % {
+        "ad": saglayici["ad"],
+        "adres": saglayici["adres"] or "(sağlayıcınızın anahtar sayfası)",
+    })
     try:
         cevap = input("  Anahtar: ").strip()
     except EOFError:
         return
     yaz()
 
-    if cevap.startswith("sk-ant-"):
-        ayar["anthropic_api_key"] = cevap
+    onek = saglayici["onek"]
+    if cevap and (not onek or cevap.startswith(onek)):
+        ayar["api_anahtari"] = cevap
         ayar_modulu.kaydet(KOK, ayar)
         yaz("  Anahtar ayarlar.json dosyasına kaydedildi. Türkçe özetler açık.")
     elif cevap:
-        yaz("  Bu bir Anthropic anahtarına benzemiyor (sk-ant-... ile başlamalı).")
+        yaz("  Bu bir %s anahtarına benzemiyor (%s... ile başlamalı)."
+            % (saglayici["ad"], onek))
         yaz("  Şimdilik atlandı, bir dahaki sefere yine sorulacak.")
     else:
         ayar["yapay_zeka_ozet"] = False
@@ -133,18 +153,33 @@ def main(argv=None):
                     help="Yapay zeka özeti üretme, abstract sonucunu kullan")
     ap.add_argument("--acma", action="store_true", help="Raporu tarayıcıda açma")
     ap.add_argument("--sifirla", action="store_true", help="Önbelleği yok say, her şeyi yeniden çek")
-    ap.add_argument("--anahtar", metavar="SK-ANT-...",
-                    help="Anthropic API anahtarını kaydet ve çık")
+    ap.add_argument("--saglayici", choices=sorted(ozet_modulu.SAGLAYICILAR),
+                    help="Özet sağlayıcısını değiştir (anthropic / deepseek / openai-uyumlu)")
+    ap.add_argument("--anahtar", metavar="ANAHTAR",
+                    help="Seçili sağlayıcının API anahtarını kaydet")
+    ap.add_argument("--model", metavar="AD",
+                    help="Kullanılacak model adı (boş bırakılırsa sağlayıcı varsayılanı)")
     ap.add_argument("--cikti", default=RAPOR_YOLU, help="Rapor dosyasının yolu")
     a = ap.parse_args(argv)
 
     ayar = ayar_modulu.yukle(KOK)
 
-    if a.anahtar:
-        ayar["anthropic_api_key"] = a.anahtar.strip()
-        ayar["yapay_zeka_ozet"] = True
+    if a.saglayici or a.anahtar or a.model is not None:
+        if a.saglayici and a.saglayici != ayar.get("saglayici"):
+            ayar["saglayici"] = a.saglayici
+            # Saglayici degisince eski model adi gecersiz olur
+            if not a.model:
+                ayar["model"] = ""
+        if a.model is not None:
+            ayar["model"] = a.model.strip()
+        if a.anahtar:
+            ayar["api_anahtari"] = a.anahtar.strip()
+            ayar["yapay_zeka_ozet"] = True
         ayar_modulu.kaydet(KOK, ayar)
-        yaz("Anahtar kaydedildi, Türkçe özet açıldı.")
+        s_ = saglayici_kur(ayar)
+        yaz("Ayarlar güncellendi → sağlayıcı: %s · model: %s · anahtar: %s"
+            % (s_["ad"], s_["model"] or "(belirtilmemiş)",
+               "var" if s_["anahtar"] else "yok"))
         return 0
 
     anahtar_iste(ayar, a.ozetsiz)
@@ -224,13 +259,14 @@ def main(argv=None):
 
     yaz()
     yaz("Özetler hazırlanıyor…")
-    anahtar = "" if (a.ozetsiz or not ayar.get("yapay_zeka_ozet")) \
-        else ayar_modulu.anthropic_anahtari(ayar)
+    saglayici = saglayici_kur(ayar, uyari=yaz)
+    if a.ozetsiz or not ayar.get("yapay_zeka_ozet"):
+        saglayici["anahtar"] = ""
     if a.ozetsiz:
         yaz("  --ozetsiz verildi → abstract sonuç bölümleri kullanılıyor")
     try:
         uretilen = ozet_modulu.ozetle(
-            pencere_ici, anahtar, ayar.get("model", "claude-sonnet-5"),
+            pencere_ici, saglayici,
             int(ayar["calistirma_basina_azami_ozet"]), ilerleme=yaz)
     except KeyboardInterrupt:
         yaz("\nÖzetleme iptal edildi, mevcut özetlerle devam ediliyor.")

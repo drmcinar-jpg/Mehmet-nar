@@ -16,9 +16,74 @@ import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
-API_UCU = "https://api.anthropic.com/v1/messages"
-API_SURUMU = "2023-06-01"
 ES_ZAMANLI = 4
+ANTHROPIC_SURUMU = "2023-06-01"
+
+# Desteklenen ozet saglayicilari. Yeni bir OpenAI uyumlu servis eklemek icin
+# "openai-uyumlu" secip ayarlar.json'da api_ucu ve model yazmak yeterli.
+SAGLAYICILAR = {
+    "anthropic": {
+        "ad": "Anthropic (Claude)",
+        "uc": "https://api.anthropic.com/v1/messages",
+        "bicim": "anthropic",
+        "model": "claude-sonnet-5",
+        "ortam": "ANTHROPIC_API_KEY",
+        "onek": "sk-ant-",
+        "adres": "https://console.anthropic.com/settings/keys",
+        "model_oneki": "claude",
+    },
+    "deepseek": {
+        "ad": "DeepSeek",
+        "uc": "https://api.deepseek.com/chat/completions",
+        "bicim": "openai",
+        "model": "deepseek-flash",
+        "ortam": "DEEPSEEK_API_KEY",
+        "onek": "sk-",
+        "adres": "https://platform.deepseek.com/api_keys",
+        "model_oneki": "deepseek",
+    },
+    "openai-uyumlu": {
+        "ad": "OpenAI uyumlu servis",
+        "uc": "",          # ayarlar.json -> api_ucu ile verilir
+        "bicim": "openai",
+        "model": "",       # ayarlar.json -> model ile verilir
+        "ortam": "OPENAI_API_KEY",
+        "onek": "",
+        "adres": "",
+        "model_oneki": "",
+    },
+}
+VARSAYILAN_SAGLAYICI = "anthropic"
+
+
+def saglayici_bilgisi(ad):
+    return SAGLAYICILAR.get((ad or "").strip().lower() or VARSAYILAN_SAGLAYICI,
+                            SAGLAYICILAR[VARSAYILAN_SAGLAYICI])
+
+
+def model_coz(saglayici_adi, model, uyari=None):
+    """Ayarlardaki model bu saglayiciya ait degilse saglayicinin varsayilanina duser.
+
+    Sagayici degistirildiginde eski model adinin kalip 404 uretmesini onler.
+    """
+    bilgi = saglayici_bilgisi(saglayici_adi)
+    model = (model or "").strip()
+    if not model:
+        return bilgi["model"]
+
+    baska = [b for a, b in SAGLAYICILAR.items()
+             if a != saglayici_adi and b["model_oneki"]
+             and model.lower().startswith(b["model_oneki"])]
+    if baska:
+        if uyari:
+            uyari("  not: '%s' modeli %s sağlayıcısına ait değil, %s kullanılıyor"
+                  % (model, bilgi["ad"], bilgi["model"] or "(model belirtilmemiş)"))
+        return bilgi["model"]
+    return model
+
+
+def uc_coz(saglayici_adi, api_ucu):
+    return (api_ucu or "").strip() or saglayici_bilgisi(saglayici_adi)["uc"]
 
 SISTEM = (
     "Sen üreme tıbbı (IVF, infertilite, kadın doğum, üreme endokrinolojisi) alanında "
@@ -103,25 +168,56 @@ class OzetHatasi(Exception):
     pass
 
 
-def _api_cagir(anahtar, model, istem, zaman_asimi=90):
-    govde = json.dumps({
+def _http(uc, govde, basliklar, zaman_asimi):
+    istek = urllib.request.Request(uc, data=json.dumps(govde).encode("utf-8"),
+                                   headers=basliklar)
+    with urllib.request.urlopen(istek, timeout=zaman_asimi,
+                                context=ssl.create_default_context()) as y:
+        return json.loads(y.read().decode("utf-8"))
+
+
+def _anthropic_cagir(uc, anahtar, model, istem, zaman_asimi):
+    cevap = _http(uc, {
         "model": model,
         "max_tokens": 1000,
         "system": SISTEM,
         "messages": [{"role": "user", "content": istem}],
-    }).encode("utf-8")
-
-    istek = urllib.request.Request(API_UCU, data=govde, headers={
+    }, {
         "x-api-key": anahtar,
-        "anthropic-version": API_SURUMU,
+        "anthropic-version": ANTHROPIC_SURUMU,
         "content-type": "application/json",
-    })
-    with urllib.request.urlopen(istek, timeout=zaman_asimi,
-                                context=ssl.create_default_context()) as y:
-        cevap = json.loads(y.read().decode("utf-8"))
+    }, zaman_asimi)
 
-    parcalar = [p.get("text", "") for p in cevap.get("content", []) if p.get("type") == "text"]
-    return "".join(parcalar).strip()
+    return "".join(p.get("text", "") for p in cevap.get("content", [])
+                   if p.get("type") == "text").strip()
+
+
+def _openai_cagir(uc, anahtar, model, istem, zaman_asimi):
+    """DeepSeek, OpenAI ve OpenAI uyumlu diger servisler icin."""
+    cevap = _http(uc, {
+        "model": model,
+        "max_tokens": 1000,
+        # Istem zaten JSON istiyor; bu mod cevabi garanti altina alir
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {"role": "system", "content": SISTEM},
+            {"role": "user", "content": istem},
+        ],
+    }, {
+        "Authorization": "Bearer " + anahtar,
+        "Content-Type": "application/json",
+    }, zaman_asimi)
+
+    secenekler = cevap.get("choices") or []
+    if not secenekler:
+        return ""
+    return (secenekler[0].get("message", {}).get("content") or "").strip()
+
+
+def _api_cagir(uc, bicim, anahtar, model, istem, zaman_asimi=90):
+    if bicim == "anthropic":
+        return _anthropic_cagir(uc, anahtar, model, istem, zaman_asimi)
+    return _openai_cagir(uc, anahtar, model, istem, zaman_asimi)
 
 
 def _json_ayikla(metin):
@@ -139,7 +235,7 @@ def _json_ayikla(metin):
 # Tekrar denemenin ise yaramayacagi hatalar: sebebini kullaniciya soyle
 _KALICI_HATALAR = {
     400: "istek reddedildi (model adı yanlış olabilir — ayarlar.json → model)",
-    401: "API anahtarı geçersiz (ayarlar.json → anthropic_api_key)",
+    401: "API anahtarı geçersiz (ayarlar.json → api_anahtari)",
     403: "API anahtarının bu modele erişim izni yok",
     404: "model bulunamadı (ayarlar.json → model)",
     413: "makale özeti çok uzun",
@@ -150,7 +246,7 @@ _GECICI_HATALAR = {
 }
 
 
-def _tek_ozet(makale, anahtar, model):
+def _tek_ozet(makale, anahtar, model, uc, bicim):
     istem = SABLON.format(
         dergi=makale.get("dergi_tam") or makale.get("dergi_kisa", ""),
         baslik=makale.get("baslik", ""),
@@ -161,17 +257,18 @@ def _tek_ozet(makale, anahtar, model):
     son_hata = "özet üretilemedi"
     for deneme in range(3):
         try:
-            return _bicimle(_json_ayikla(_api_cagir(anahtar, model, istem)))
+            return _bicimle(_json_ayikla(
+                _api_cagir(uc, bicim, anahtar, model, istem)))
 
         except urllib.error.HTTPError as e:
             if e.code in _KALICI_HATALAR:
                 # Tekrar denemek durumu degistirmez; hemen ve acikca bildir
-                raise OzetHatasi("Anthropic API: %s" % _KALICI_HATALAR[e.code])
-            son_hata = "Anthropic API: %s" % _GECICI_HATALAR.get(
+                raise OzetHatasi("API: %s" % _KALICI_HATALAR[e.code])
+            son_hata = "API: %s" % _GECICI_HATALAR.get(
                 e.code, "sunucu %s hatası verdi" % e.code)
 
         except (urllib.error.URLError, TimeoutError, OSError):
-            son_hata = "Anthropic API'ye ulaşılamadı (internet bağlantısı?)"
+            son_hata = "API'ye ulaşılamadı (internet bağlantısı?)"
 
         except OzetHatasi:
             son_hata = "model geçerli JSON döndürmedi"
@@ -214,8 +311,16 @@ def _yedek(makale):
     }
 
 
-def ozetle(makaleler, anahtar, model, azami_sayi, ilerleme=None):
-    """Ozeti olmayan makaleleri (yerinde) ozetler. Uretilen ozet sayisini dondurur."""
+def ozetle(makaleler, saglayici, azami_sayi, ilerleme=None):
+    """Ozeti olmayan makaleleri (yerinde) ozetler. Uretilen ozet sayisini dondurur.
+
+    saglayici: {"anahtar", "model", "uc", "bicim", "ad"} sozlugu.
+    Anahtar bossa hepsine cikarimsal ozet uygulanir.
+    """
+    anahtar = saglayici.get("anahtar", "")
+    model = saglayici.get("model", "")
+    uc = saglayici.get("uc", "")
+    bicim = saglayici.get("bicim", "anthropic")
     ilerleme = ilerleme or (lambda m: None)
     eksik = [m for m in makaleler if not m.get("ozet")]
 
@@ -245,12 +350,13 @@ def ozetle(makaleler, anahtar, model, azami_sayi, ilerleme=None):
         ilerleme("  not: %d makale özet limitini aştı, onlar için abstract sonucu kullanıldı"
                  % (len(ozetlenebilir) - azami_sayi))
 
-    ilerleme("  %d makale Türkçe özetleniyor (%s)…" % (len(secilen), model))
+    ilerleme("  %d makale Türkçe özetleniyor (%s · %s)…"
+             % (len(secilen), saglayici.get("ad", ""), model))
 
     # Once tek bir deneme: anahtar/model yanlissa 80 cagri yapip 80 kez
     # basarisiz olmak yerine sebebi hemen soyleyip yedege gecelim.
     try:
-        secilen[0]["ozet"] = _tek_ozet(secilen[0], anahtar, model)
+        secilen[0]["ozet"] = _tek_ozet(secilen[0], anahtar, model, uc, bicim)
     except OzetHatasi as e:
         ilerleme("")
         ilerleme("  !! Türkçe özet üretilemiyor — %s" % e)
@@ -266,7 +372,7 @@ def ozetle(makaleler, anahtar, model, azami_sayi, ilerleme=None):
 
     def is_(m):
         try:
-            return m, _tek_ozet(m, anahtar, model), None
+            return m, _tek_ozet(m, anahtar, model, uc, bicim), None
         except OzetHatasi as e:
             return m, None, str(e)
 
