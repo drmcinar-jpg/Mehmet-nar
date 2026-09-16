@@ -153,6 +153,9 @@ def main(argv=None):
                     help="Yapay zeka özeti üretme, abstract sonucunu kullan")
     ap.add_argument("--acma", action="store_true", help="Raporu tarayıcıda açma")
     ap.add_argument("--sifirla", action="store_true", help="Önbelleği yok say, her şeyi yeniden çek")
+    ap.add_argument("--ozetleri-yenile", action="store_true", dest="ozetleri_yenile",
+                    help="Var olan özetleri sil ve yeniden ürettir "
+                         "(makaleler yeniden indirilmez)")
     ap.add_argument("--saglayici", choices=sorted(ozet_modulu.SAGLAYICILAR),
                     help="Özet sağlayıcısını değiştir (anthropic / deepseek / openai-uyumlu)")
     ap.add_argument("--anahtar", metavar="ANAHTAR",
@@ -259,6 +262,12 @@ def main(argv=None):
 
     yaz()
     yaz("Özetler hazırlanıyor…")
+    if a.ozetleri_yenile:
+        for m in pencere_ici:
+            m.pop("ozet", None)
+        yaz("  --ozetleri-yenile verildi → %d makalenin özeti yeniden üretilecek"
+            % len(pencere_ici))
+
     saglayici = saglayici_kur(ayar, uyari=yaz)
     if a.ozetsiz or not ayar.get("yapay_zeka_ozet"):
         saglayici["anahtar"] = ""

@@ -322,33 +322,58 @@ def ozetle(makaleler, saglayici, azami_sayi, ilerleme=None):
     uc = saglayici.get("uc", "")
     bicim = saglayici.get("bicim", "anthropic")
     ilerleme = ilerleme or (lambda m: None)
+
+    def _metni_var(m):
+        return bool((m.get("ozet_metni") or "").strip())
+
+    # 1) Hic ozeti olmayan makaleler
     eksik = [m for m in makaleler if not m.get("ozet")]
-
-    if not eksik:
-        return 0
-
     # Abstract'i olmayanlara (editoryal, erratum vb.) yapay zeka ozeti gereksiz
-    ozetlenebilir = [m for m in eksik if (m.get("ozet_metni") or "").strip()]
-    ozetlenebilir_kimlikler = {id(m) for m in ozetlenebilir}
     for m in eksik:
-        if id(m) not in ozetlenebilir_kimlikler:
+        if not _metni_var(m):
             m["ozet"] = _yedek(m)
+    yeni = [m for m in eksik if _metni_var(m)]
 
-    if not anahtar or not ozetlenebilir:
-        for m in ozetlenebilir:
+    if not anahtar:
+        for m in yeni:
             m["ozet"] = _yedek(m)
-        if ozetlenebilir and not anahtar:
+        if yeni:
             ilerleme("  API anahtarı yok → özetler makalenin Sonuç bölümünden çıkarıldı")
         return 0
 
-    # Yeniden eskiye dogru sirala, limiti asanlara cikarimsal ozet ver
-    ozetlenebilir.sort(key=lambda m: m.get("giris_tarihi", ""), reverse=True)
-    secilen = ozetlenebilir[:azami_sayi]
-    for m in ozetlenebilir[azami_sayi:]:
+    # 2) Daha once anahtarsiz calisildigi icin Ingilizce kalmis ozetler.
+    #    Anahtar eklendikten sonra bunlar kendiliginden Turkceye cevrilsin;
+    #    kullanicinin onbellegi silmesi gerekmesin.
+    yukseltilecek = [m for m in makaleler
+                     if (m.get("ozet") or {}).get("kaynak") == "abstract"
+                     and _metni_var(m)]
+
+    # Yeniden eskiye dogru: once en taze makaleler
+    yeni.sort(key=lambda m: m.get("giris_tarihi", ""), reverse=True)
+    yukseltilecek.sort(key=lambda m: m.get("giris_tarihi", ""), reverse=True)
+
+    # Kota once yeni makalelere, artani eski Ingilizce ozetlere
+    secilen = yeni[:azami_sayi]
+    for m in yeni[azami_sayi:]:
         m["ozet"] = _yedek(m)
-    if len(ozetlenebilir) > azami_sayi:
-        ilerleme("  not: %d makale özet limitini aştı, onlar için abstract sonucu kullanıldı"
-                 % (len(ozetlenebilir) - azami_sayi))
+    if len(yeni) > azami_sayi:
+        ilerleme("  not: %d yeni makale özet limitini aştı, onlar için abstract "
+                 "sonucu kullanıldı" % (len(yeni) - azami_sayi))
+
+    kalan_kota = azami_sayi - len(secilen)
+    if kalan_kota > 0 and yukseltilecek:
+        cevrilecek = yukseltilecek[:kalan_kota]
+        secilen = secilen + cevrilecek
+        ilerleme("  daha önce İngilizce kalmış %d özet Türkçeye çevriliyor"
+                 % len(cevrilecek))
+        if len(yukseltilecek) > kalan_kota:
+            ilerleme("    (%d tanesi sırada; her çalıştırmada bir grup daha çevrilir."
+                     % (len(yukseltilecek) - kalan_kota))
+            ilerleme("     Hepsini bir seferde istiyorsanız ayarlar.json →"
+                     " calistirma_basina_azami_ozet değerini yükseltin.)")
+
+    if not secilen:
+        return 0
 
     ilerleme("  %d makale Türkçe özetleniyor (%s · %s)…"
              % (len(secilen), saglayici.get("ad", ""), model))

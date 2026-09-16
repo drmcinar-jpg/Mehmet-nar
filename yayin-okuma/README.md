@@ -56,6 +56,7 @@ python3 calistir.py --gun 30      # sadece son 30 günü çek (daha hızlı)
 python3 calistir.py --ozetsiz     # yapay zeka özeti üretme (ücretsiz/hızlı)
 python3 calistir.py --acma        # raporu üret ama tarayıcıda açma
 python3 calistir.py --sifirla     # önbelleği yok say, her şeyi yeniden çek
+python3 calistir.py --ozetleri-yenile      # özetleri sil, yeniden ürettir
 python3 calistir.py --anahtar sk-ant-...    # API anahtarını kaydet
 python3 calistir.py --saglayici deepseek   # özet sağlayıcısını değiştir
 python3 calistir.py --model claude-opus-5  # modeli değiştir
@@ -122,15 +123,32 @@ Reproduction'ın `SUMMARY ANSWER` / `WIDER IMPLICATIONS`, Lancet'in
 Anahtar yanlışsa ya da model adı hatalıysa program bunu **ilk denemede**
 söyler ve geri kalan makaleler için boşuna istek göndermez.
 
+### Sonradan anahtar eklerseniz
+
+Anahtarsız çalıştırdıysanız özetler İngilizce kalır. Anahtarı girip normal
+çalıştırmanız yeterli: program **birikmiş İngilizce özetleri kendiliğinden
+Türkçeye çevirmeye başlar**, her çalıştırmada bir grup. Makaleler yeniden
+indirilmez, önbelleği silmenize gerek yoktur.
+
+3 aylık arşiv yaklaşık 500 makaledir; varsayılan ayarla birkaç çalıştırmada
+tamamlanır. Hepsini tek seferde istiyorsanız `ayarlar.json` içinde
+`calistirma_basina_azami_ozet` değerini yükseltin (örn. 600).
+
+Var olan özetleri tümüyle sildirip yeniden ürettirmek için:
+
+```
+python3 calistir.py --ozetleri-yenile
+```
+
 ### Maliyet kontrolü
 
 - Üretilen her özet diske kaydedilir; **aynı makale iki kez özetlenmez.**
-- `calistirma_basina_azami_ozet` (varsayılan 80) tek çalıştırmadaki özet
-  sayısını sınırlar; aşanlar için abstract sonucu kullanılır.
+- `calistirma_basina_azami_ozet` (varsayılan 150) tek çalıştırmadaki özet
+  sayısını sınırlar; aşanlar için abstract sonucu kullanılır ve sonraki
+  çalıştırmalarda sıraya girer.
 - İlk çalıştırma 3 aylık arşivi tarar ve uzun sürer. Sonraki günlerde yalnızca
   **yeni** makaleler indirilip özetlenir — birkaç saniye.
-
----
+- Abstract'ı olmayan kayıtlar (editoryal, erratum) hiç API'ye gönderilmez.
 
 ## Takip edilen dergiler
 
@@ -198,7 +216,7 @@ açılır, e-postayla gönderilebilir.
 | `api_anahtari` | Seçili sağlayıcının API anahtarı |
 | `model` | Kullanılacak model (boş = sağlayıcının varsayılanı) |
 | `api_ucu` | Boş = sağlayıcının varsayılan adresi |
-| `calistirma_basina_azami_ozet` | Tek çalıştırmadaki azami özet sayısı |
+| `calistirma_basina_azami_ozet` | Tek çalıştırmadaki azami özet sayısı (varsayılan 150) |
 | `ncbi_api_key` | İsteğe bağlı; PubMed hızını 3→10 istek/sn çıkarır ([ücretsiz](https://account.ncbi.nlm.nih.gov/settings/)) |
 | `eposta` | NCBI'ın önerdiği iletişim adresi (isteğe bağlı) |
 | `tarih_turu` | `edat` = PubMed'e giriş tarihi (önerilen), `pdat` = yayın tarihi |
@@ -253,8 +271,8 @@ değerini artırın.
 
 **Özetler İngilizce geliyor** — `api_anahtari` boş demektir.
 `python3 calistir.py --anahtar ...` ile girin, sonra normal çalıştırın.
-Daha önce indirilmiş makaleler için Türkçe özet üretilmesini isterseniz
-`veri/makaleler.json` dosyasını silin (makaleler yeniden indirilir).
+Daha önce indirilmiş makalelerin İngilizce özetleri, sonraki çalıştırmalarda
+kendiliğinden Türkçeye çevrilir — bir şey silmenize gerek yok.
 
 Program "Türkçe özet kapatıldı" dediyse ilk soruda Enter'a basmışsınızdır;
 `ayarlar.json` içinde `"yapay_zeka_ozet": true` yapın.
