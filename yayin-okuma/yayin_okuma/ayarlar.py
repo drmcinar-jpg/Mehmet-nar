@@ -47,6 +47,10 @@ VARSAYILAN = {
                     "3 aylik arsiv yaklasik 500 makale; limiti yukseltirseniz birikmis "
                     "ozetler daha az calistirmada tamamlanir."),
 
+    "es_zamanli_istek": 6,
+    "_es_zamanli_not": ("Ayni anda kac ozet istegi gonderilsin (1-16). Yukseltmek "
+                        "toplam sureyi kisaltir; servis sinir koyarsa dusurun."),
+
     "tarih_turu": "edat",
     "_tarih_turu_not": "edat = PubMed'e giris tarihi (yeni cikanlari takip icin dogrusu). pdat = yayin tarihi.",
 

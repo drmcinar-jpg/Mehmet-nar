@@ -77,6 +77,7 @@ def saglayici_kur(ayar, uyari=None):
         "model": ozet_modulu.model_coz(adi, ayar.get("model"), uyari),
         "uc": ozet_modulu.uc_coz(adi, ayar.get("api_ucu")),
         "bicim": bilgi["bicim"],
+        "es_zamanli": ayar.get("es_zamanli_istek", ozet_modulu.ES_ZAMANLI),
     }
 
 

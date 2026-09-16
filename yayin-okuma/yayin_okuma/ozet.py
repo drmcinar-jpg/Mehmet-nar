@@ -11,12 +11,14 @@ Uretilen ozetler onbellege yazilir; ayni makale ikinci kez ozetlenmez.
 import json
 import re
 import ssl
+import sys
 import time
 import urllib.error
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-ES_ZAMANLI = 4
+ES_ZAMANLI = 4          # varsayilan es zamanli istek sayisi
+ZAMAN_ASIMI = 60        # tek bir ozet istegi icin saniye
 ANTHROPIC_SURUMU = "2023-06-01"
 
 # Desteklenen ozet saglayicilari. Yeni bir OpenAI uyumlu servis eklemek icin
@@ -162,6 +164,57 @@ def _kirp(metin, azami):
     return (kesik[:nokta + 1] if nokta > azami * 0.5 else kesik.rstrip() + "…")
 
 
+def _sure_yaz(saniye):
+    saniye = int(max(0, saniye))
+    if saniye < 60:
+        return "%d sn" % saniye
+    if saniye < 3600:
+        return "%d dk %02d sn" % (saniye // 60, saniye % 60)
+    return "%d sa %02d dk" % (saniye // 3600, (saniye % 3600) // 60)
+
+
+class _Ilerleme:
+    """Terminalde tek satiri guncelleyen, aksi halde araliklarla yazan gosterge."""
+
+    def __init__(self, toplam, yaz):
+        self.toplam = toplam
+        self.yaz = yaz
+        self.baslangic = time.monotonic()
+        self.bitti_mi = False
+        try:
+            self.canli = sys.stdout.isatty()
+        except (AttributeError, ValueError):
+            self.canli = False
+
+    def guncelle(self, bitti):
+        gecen = time.monotonic() - self.baslangic
+        metin = "    özetlendi: %d/%d · geçen %s" % (bitti, self.toplam, _sure_yaz(gecen))
+        if bitti >= 2 and bitti < self.toplam:
+            kalan = gecen / bitti * (self.toplam - bitti)
+            metin += " · tahmini kalan %s" % _sure_yaz(kalan)
+
+        if self.canli:
+            try:
+                sys.stdout.write("\r" + metin.ljust(72))
+                sys.stdout.flush()
+                return
+            except (OSError, ValueError):
+                self.canli = False
+        if bitti % 10 == 0 or bitti == self.toplam:
+            self.yaz(metin)
+
+    def bitir(self):
+        if self.bitti_mi:
+            return
+        self.bitti_mi = True
+        if self.canli:
+            try:
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+            except (OSError, ValueError):
+                pass
+
+
 # --------------------------------------------------------------- yapay zeka
 
 class OzetHatasi(Exception):
@@ -214,7 +267,7 @@ def _openai_cagir(uc, anahtar, model, istem, zaman_asimi):
     return (secenekler[0].get("message", {}).get("content") or "").strip()
 
 
-def _api_cagir(uc, bicim, anahtar, model, istem, zaman_asimi=90):
+def _api_cagir(uc, bicim, anahtar, model, istem, zaman_asimi=ZAMAN_ASIMI):
     if bicim == "anthropic":
         return _anthropic_cagir(uc, anahtar, model, istem, zaman_asimi)
     return _openai_cagir(uc, anahtar, model, istem, zaman_asimi)
@@ -321,6 +374,7 @@ def ozetle(makaleler, saglayici, azami_sayi, ilerleme=None):
     model = saglayici.get("model", "")
     uc = saglayici.get("uc", "")
     bicim = saglayici.get("bicim", "anthropic")
+    es_zamanli = max(1, min(int(saglayici.get("es_zamanli") or ES_ZAMANLI), 16))
     ilerleme = ilerleme or (lambda m: None)
 
     def _metni_var(m):
@@ -378,8 +432,9 @@ def ozetle(makaleler, saglayici, azami_sayi, ilerleme=None):
     ilerleme("  %d makale Türkçe özetleniyor (%s · %s)…"
              % (len(secilen), saglayici.get("ad", ""), model))
 
-    # Once tek bir deneme: anahtar/model yanlissa 80 cagri yapip 80 kez
+    # Once tek bir deneme: anahtar/model yanlissa 150 cagri yapip 150 kez
     # basarisiz olmak yerine sebebi hemen soyleyip yedege gecelim.
+    olcum = time.monotonic()
     try:
         secilen[0]["ozet"] = _tek_ozet(secilen[0], anahtar, model, uc, bicim)
     except OzetHatasi as e:
@@ -391,9 +446,17 @@ def ozetle(makaleler, saglayici, azami_sayi, ilerleme=None):
             m["ozet"] = _yedek(m)
         return 0
 
+    tek_sure = time.monotonic() - olcum
+    kalan = secilen[1:]
+    if kalan:
+        tahmin = tek_sure * len(kalan) / max(1, es_zamanli)
+        ilerleme("  ilk özet %s sürdü → %d makale için kabaca %s"
+                 % (_sure_yaz(tek_sure), len(kalan), _sure_yaz(tahmin)))
+        ilerleme("  (istediğiniz an Ctrl+C ile durdurabilirsiniz; o ana kadar"
+                 " üretilenler korunur)")
+
     basarili = 1
     hatalar = []
-    kalan = secilen[1:]
 
     def is_(m):
         try:
@@ -402,16 +465,42 @@ def ozetle(makaleler, saglayici, azami_sayi, ilerleme=None):
             return m, None, str(e)
 
     if kalan:
-        with ThreadPoolExecutor(max_workers=ES_ZAMANLI) as havuz:
-            for i, (m, sonuc, hata) in enumerate(havuz.map(is_, kalan), 2):
+        gosterge = _Ilerleme(len(secilen), ilerleme)
+        havuz = ThreadPoolExecutor(max_workers=es_zamanli)
+        gelecekler = [havuz.submit(is_, m) for m in kalan]
+        # Makaleler sozluk oldugu icin kimlikle takip edilir
+        bitmeyen = {id(m): m for m in kalan}
+        bitti = 1
+        try:
+            # as_completed: siradaki yavas istek digerlerinin gosterimini bekletmesin
+            for gelecek in as_completed(gelecekler):
+                m, sonuc, hata = gelecek.result()
+                bitmeyen.pop(id(m), None)
                 if sonuc:
                     m["ozet"] = sonuc
                     basarili += 1
                 else:
                     m["ozet"] = _yedek(m)
                     hatalar.append(hata)
-                if i % 10 == 0 or i == len(secilen):
-                    ilerleme("    özetlendi: %d/%d" % (i, len(secilen)))
+                bitti += 1
+                gosterge.guncelle(bitti)
+        except KeyboardInterrupt:
+            gosterge.bitir()
+            ilerleme("")
+            ilerleme("  Durduruldu. %d özet üretildi ve kaydedildi;" % basarili)
+            ilerleme("  kalan %d makale bir sonraki çalıştırmada çevrilecek."
+                     % len(bitmeyen))
+            for g in gelecekler:
+                g.cancel()
+            havuz.shutdown(wait=False)
+            # Yarim kalanlar ozetsiz gorunmesin; sonraki turda yukseltilirler
+            for m in bitmeyen.values():
+                if not m.get("ozet"):
+                    m["ozet"] = _yedek(m)
+            return basarili
+        finally:
+            gosterge.bitir()
+        havuz.shutdown(wait=True)
 
     if hatalar:
         from collections import Counter

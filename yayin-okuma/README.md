@@ -149,6 +149,12 @@ python3 calistir.py --ozetleri-yenile
 - İlk çalıştırma 3 aylık arşivi tarar ve uzun sürer. Sonraki günlerde yalnızca
   **yeni** makaleler indirilip özetlenir — birkaç saniye.
 - Abstract'ı olmayan kayıtlar (editoryal, erratum) hiç API'ye gönderilmez.
+- Özetleme sırasında **Ctrl+C** ile durdurabilirsiniz: o ana kadar üretilen
+  özetler kaydedilir, rapor oluşur, kalanlar sonraki çalıştırmada çevrilir.
+- İlk özet üretilir üretilmez ekranda tahmini toplam süre yazar; sonrasında
+  kaç makalenin bittiği ve kalan süre canlı olarak güncellenir.
+- Yavaş geliyorsa `ayarlar.json` → `es_zamanli_istek` değerini yükseltin
+  (varsayılan 6, en fazla 16). Servis sınır koyarsa düşürün.
 
 ## Takip edilen dergiler
 
@@ -217,6 +223,7 @@ açılır, e-postayla gönderilebilir.
 | `model` | Kullanılacak model (boş = sağlayıcının varsayılanı) |
 | `api_ucu` | Boş = sağlayıcının varsayılan adresi |
 | `calistirma_basina_azami_ozet` | Tek çalıştırmadaki azami özet sayısı (varsayılan 150) |
+| `es_zamanli_istek` | Aynı anda kaç özet isteği gönderilsin (varsayılan 6, en fazla 16) |
 | `ncbi_api_key` | İsteğe bağlı; PubMed hızını 3→10 istek/sn çıkarır ([ücretsiz](https://account.ncbi.nlm.nih.gov/settings/)) |
 | `eposta` | NCBI'ın önerdiği iletişim adresi (isteğe bağlı) |
 | `tarih_turu` | `edat` = PubMed'e giriş tarihi (önerilen), `pdat` = yayın tarihi |
@@ -259,6 +266,11 @@ yayin-okuma/
 ```
 
 ## Sorun giderme
+
+**Özetleme çok uzun sürüyor** — ekranda tahmini kalan süre yazar. Hızlandırmak
+için `ayarlar.json` → `es_zamanli_istek` değerini yükseltin. İstediğiniz an
+Ctrl+C ile durdurabilirsiniz; üretilen özetler kaybolmaz, rapor yine oluşur ve
+kalanlar sonraki çalıştırmada tamamlanır.
 
 **"PubMed'e ulaşılamadı"** — İnternet bağlantısı yok ya da NCBI geçici olarak
 yanıt vermiyor. Program 4 kez tekrar dener; biraz sonra yine deneyin.
