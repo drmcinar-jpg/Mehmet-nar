@@ -9,11 +9,29 @@ değiştirmek için yeniden bekleme yok.
 
 ---
 
-## Kurulum
+## Masaüstüne kurulum
 
-Ek kütüphane gerekmez; yalnızca **Python 3.8+** yeterli.
+Terminal'i açıp (Spotlight → "Terminal") aşağıdaki komutu **tek parça hâlinde**
+yapıştırın ve Enter'a basın. Klasörü oluşturur, dosyaları indirir, çift
+tıklanabilir hâle getirir ve klasörü Finder'da açar:
 
-macOS'ta Python 3 kurulu değilse Terminal'de:
+```bash
+mkdir -p ~/Desktop/projeler/"yayın okuma" && \
+curl -fsSL https://github.com/drmcinar-jpg/Mehmet-nar/archive/refs/heads/claude/confident-heisenberg-xs83sy.tar.gz \
+  | tar -xz -C ~/Desktop/projeler/"yayın okuma" --strip-components=2 \
+    Mehmet-nar-claude-confident-heisenberg-xs83sy/yayin-okuma && \
+chmod +x ~/Desktop/projeler/"yayın okuma"/Yayin-Okuma.command && \
+open ~/Desktop/projeler/"yayın okuma"
+```
+
+> macOS'ta klasör Finder'da **Masaüstü** görünür, disk üzerindeki adı
+> `Desktop`'tır — komut doğru yere kopyalar.
+
+Güncelleme gerektiğinde aynı komutu tekrar çalıştırmanız yeterli;
+`ayarlar.json`, indirilen makaleler ve okundu işaretleriniz korunur.
+
+Ek kütüphane gerekmez; yalnızca **Python 3.8+** yeterli. macOS'ta kurulu
+değilse Terminal'de:
 
 ```
 xcode-select --install
@@ -38,6 +56,7 @@ python3 calistir.py --gun 30      # sadece son 30 günü çek (daha hızlı)
 python3 calistir.py --ozetsiz     # yapay zeka özeti üretme (ücretsiz/hızlı)
 python3 calistir.py --acma        # raporu üret ama tarayıcıda açma
 python3 calistir.py --sifirla     # önbelleği yok say, her şeyi yeniden çek
+python3 calistir.py --anahtar sk-ant-...   # API anahtarını kaydet
 ```
 
 ---
@@ -52,20 +71,29 @@ Her makale için üretilen özet şunları içerir:
 - **Klinik karşılığı** — tüp bebek/kadın doğum pratiğinde ne değişir
 - Konu etiketleri ve kanıt düzeyi rozeti
 
-Bunun için bir **Anthropic API anahtarı** gerekir. `ayarlar.json` dosyasını
-açıp şu satırı doldurun:
-
-```json
-"anthropic_api_key": "sk-ant-...",
-```
+Bunun için bir **Anthropic API anahtarı** gerekir. **İlk çalıştırmada program
+bunu size sorar** — anahtarı yapıştırıp Enter'a basmanız yeterli, kendisi
+`ayarlar.json` dosyasına kaydeder.
 
 Anahtar https://console.anthropic.com/settings/keys adresinden alınır
-(kullandığın kadar öde). `ANTHROPIC_API_KEY` ortam değişkenini de okur.
+(kullandığın kadar öde). **claude.ai aboneliği bu anahtarı içermez**, ayrı
+bir hesaptır.
+
+Sonradan girmek isterseniz:
+
+```
+python3 calistir.py --anahtar sk-ant-...
+```
+
+`ANTHROPIC_API_KEY` ortam değişkenini de okur.
 
 **Anahtar yoksa program yine çalışır:** o zaman özet yerine makalenin kendi
-sonuç bölümü (İngilizce) gösterilir — internetten başka bir ücret çıkmaz.
-Human Reproduction'ın `SUMMARY ANSWER` / `WIDER IMPLICATIONS`, Lancet'in
+sonuç bölümü (İngilizce) gösterilir — hiçbir ücret çıkmaz. Human
+Reproduction'ın `SUMMARY ANSWER` / `WIDER IMPLICATIONS`, Lancet'in
 `INTERPRETATION` gibi farklı başlıkları da tanınır.
+
+Anahtar yanlışsa ya da model adı hatalıysa program bunu **ilk denemede**
+söyler ve geri kalan makaleler için boşuna istek göndermez.
 
 ### Maliyet kontrolü
 
@@ -194,6 +222,10 @@ yanıt vermiyor. Program 4 kez tekrar dener; biraz sonra yine deneyin.
 **"… sınırına ulaşıldı" uyarısı** — Raporun üstünde çıkar; `dergi_basina_azami`
 değerini artırın.
 
-**Özetler İngilizce geliyor** — `ayarlar.json` içinde `anthropic_api_key` boş
-demektir; doldurun ve `--sifirla` olmadan tekrar çalıştırın (eski özetler
-korunur, yenileri Türkçe üretilir).
+**Özetler İngilizce geliyor** — `anthropic_api_key` boş demektir.
+`python3 calistir.py --anahtar sk-ant-...` ile girin, sonra normal çalıştırın.
+Daha önce indirilmiş makaleler için Türkçe özet üretilmesini isterseniz
+`veri/makaleler.json` dosyasını silin (makaleler yeniden indirilir).
+
+Program "Türkçe özet kapatıldı" dediyse ilk soruda Enter'a basmışsınızdır;
+`ayarlar.json` içinde `"yapay_zeka_ozet": true` yapın.

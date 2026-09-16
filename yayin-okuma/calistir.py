@@ -40,6 +40,55 @@ def yaz(mesaj=""):
     print(mesaj, flush=True)
 
 
+ANAHTAR_METNI = """
+  ------------------------------------------------------------------
+   TÜRKÇE ÖZET
+
+   Makaleleri Türkçe özetleyebilmem için bir Anthropic API anahtarı
+   gerekiyor. Anahtar şuradan alınır (kullandığın kadar öde):
+
+       https://console.anthropic.com/settings/keys
+
+   Not: claude.ai aboneliği bu anahtarı içermez, ayrı bir hesaptır.
+
+   Anahtarı yapıştırıp Enter'a basın.
+   Boş bırakıp Enter'a basarsanız Türkçe özet kapatılır ve makalelerin
+   kendi İngilizce sonuç bölümleri gösterilir (hiçbir ücret çıkmaz).
+  ------------------------------------------------------------------
+"""
+
+
+def anahtar_iste(ayar, ozetsiz):
+    """Turkce ozet acikken anahtar yoksa, ilk calistirmada bir kez sorar."""
+    if ozetsiz or not ayar.get("yapay_zeka_ozet"):
+        return
+    if ayar_modulu.anthropic_anahtari(ayar):
+        return
+    if not sys.stdin.isatty():
+        return  # cron/otomatik calistirma: soru sorma, sessizce yedege dus
+
+    yaz(ANAHTAR_METNI)
+    try:
+        cevap = input("  Anahtar: ").strip()
+    except EOFError:
+        return
+    yaz()
+
+    if cevap.startswith("sk-ant-"):
+        ayar["anthropic_api_key"] = cevap
+        ayar_modulu.kaydet(KOK, ayar)
+        yaz("  Anahtar ayarlar.json dosyasına kaydedildi. Türkçe özetler açık.")
+    elif cevap:
+        yaz("  Bu bir Anthropic anahtarına benzemiyor (sk-ant-... ile başlamalı).")
+        yaz("  Şimdilik atlandı, bir dahaki sefere yine sorulacak.")
+    else:
+        ayar["yapay_zeka_ozet"] = False
+        ayar_modulu.kaydet(KOK, ayar)
+        yaz("  Türkçe özet kapatıldı.")
+        yaz("  Açmak için: ayarlar.json → \"yapay_zeka_ozet\": true")
+    yaz()
+
+
 def sorgu_kur(dergi):
     temel = '%s[Journal]' % dergi["issn"]
     if dergi.get("kapsam") == "konulu":
@@ -84,10 +133,22 @@ def main(argv=None):
                     help="Yapay zeka özeti üretme, abstract sonucunu kullan")
     ap.add_argument("--acma", action="store_true", help="Raporu tarayıcıda açma")
     ap.add_argument("--sifirla", action="store_true", help="Önbelleği yok say, her şeyi yeniden çek")
+    ap.add_argument("--anahtar", metavar="SK-ANT-...",
+                    help="Anthropic API anahtarını kaydet ve çık")
     ap.add_argument("--cikti", default=RAPOR_YOLU, help="Rapor dosyasının yolu")
     a = ap.parse_args(argv)
 
     ayar = ayar_modulu.yukle(KOK)
+
+    if a.anahtar:
+        ayar["anthropic_api_key"] = a.anahtar.strip()
+        ayar["yapay_zeka_ozet"] = True
+        ayar_modulu.kaydet(KOK, ayar)
+        yaz("Anahtar kaydedildi, Türkçe özet açıldı.")
+        return 0
+
+    anahtar_iste(ayar, a.ozetsiz)
+
     gun = a.gun if a.gun is not None else int(ayar["gecmis_gun"])
     gun = max(1, min(gun, 400))
     bugun = date.today()

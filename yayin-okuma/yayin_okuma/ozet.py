@@ -11,6 +11,7 @@ Uretilen ozetler onbellege yazilir; ayni makale ikinci kez ozetlenmez.
 import json
 import re
 import ssl
+import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -135,6 +136,20 @@ def _json_ayikla(metin):
     raise OzetHatasi("Model geçerli JSON döndürmedi.")
 
 
+# Tekrar denemenin ise yaramayacagi hatalar: sebebini kullaniciya soyle
+_KALICI_HATALAR = {
+    400: "istek reddedildi (model adı yanlış olabilir — ayarlar.json → model)",
+    401: "API anahtarı geçersiz (ayarlar.json → anthropic_api_key)",
+    403: "API anahtarının bu modele erişim izni yok",
+    404: "model bulunamadı (ayarlar.json → model)",
+    413: "makale özeti çok uzun",
+}
+_GECICI_HATALAR = {
+    429: "istek sınırına takıldı",
+    529: "sunucu şu an aşırı yüklü",
+}
+
+
 def _tek_ozet(makale, anahtar, model):
     istem = SABLON.format(
         dergi=makale.get("dergi_tam") or makale.get("dergi_kisa", ""),
@@ -142,25 +157,32 @@ def _tek_ozet(makale, anahtar, model):
         turler=", ".join(makale.get("turler", [])) or "belirtilmemiş",
         ozet=(makale.get("ozet_metni") or "")[:9000],
     )
+
+    son_hata = "özet üretilemedi"
     for deneme in range(3):
         try:
-            veri = _json_ayikla(_api_cagir(anahtar, model, istem))
-            break
-        except urllib.error.HTTPError as e:
-            if e.code in (429, 500, 502, 503, 529) and deneme < 2:
-                import time
-                time.sleep(3 * (deneme + 1))
-                continue
-            raise OzetHatasi("Anthropic API %s hatası" % e.code)
-        except (urllib.error.URLError, TimeoutError, OSError, OzetHatasi):
-            if deneme < 2:
-                import time
-                time.sleep(3 * (deneme + 1))
-                continue
-            raise OzetHatasi("Özet üretilemedi")
-    else:
-        raise OzetHatasi("Özet üretilemedi")
+            return _bicimle(_json_ayikla(_api_cagir(anahtar, model, istem)))
 
+        except urllib.error.HTTPError as e:
+            if e.code in _KALICI_HATALAR:
+                # Tekrar denemek durumu degistirmez; hemen ve acikca bildir
+                raise OzetHatasi("Anthropic API: %s" % _KALICI_HATALAR[e.code])
+            son_hata = "Anthropic API: %s" % _GECICI_HATALAR.get(
+                e.code, "sunucu %s hatası verdi" % e.code)
+
+        except (urllib.error.URLError, TimeoutError, OSError):
+            son_hata = "Anthropic API'ye ulaşılamadı (internet bağlantısı?)"
+
+        except OzetHatasi:
+            son_hata = "model geçerli JSON döndürmedi"
+
+        if deneme < 2:
+            time.sleep(3 * (deneme + 1))
+
+    raise OzetHatasi(son_hata)
+
+
+def _bicimle(veri):
     bulgular = veri.get("bulgular") or []
     if isinstance(bulgular, str):
         bulgular = [bulgular]
@@ -224,26 +246,45 @@ def ozetle(makaleler, anahtar, model, azami_sayi, ilerleme=None):
                  % (len(ozetlenebilir) - azami_sayi))
 
     ilerleme("  %d makale Türkçe özetleniyor (%s)…" % (len(secilen), model))
-    basarili = 0
-    hata = 0
+
+    # Once tek bir deneme: anahtar/model yanlissa 80 cagri yapip 80 kez
+    # basarisiz olmak yerine sebebi hemen soyleyip yedege gecelim.
+    try:
+        secilen[0]["ozet"] = _tek_ozet(secilen[0], anahtar, model)
+    except OzetHatasi as e:
+        ilerleme("")
+        ilerleme("  !! Türkçe özet üretilemiyor — %s" % e)
+        ilerleme("     Özetler şimdilik makalenin İngilizce sonuç bölümünden alındı.")
+        ilerleme("")
+        for m in secilen:
+            m["ozet"] = _yedek(m)
+        return 0
+
+    basarili = 1
+    hatalar = []
+    kalan = secilen[1:]
 
     def is_(m):
         try:
-            return m, _tek_ozet(m, anahtar, model)
-        except OzetHatasi:
-            return m, None
+            return m, _tek_ozet(m, anahtar, model), None
+        except OzetHatasi as e:
+            return m, None, str(e)
 
-    with ThreadPoolExecutor(max_workers=ES_ZAMANLI) as havuz:
-        for i, (m, sonuc) in enumerate(havuz.map(is_, secilen), 1):
-            if sonuc:
-                m["ozet"] = sonuc
-                basarili += 1
-            else:
-                m["ozet"] = _yedek(m)
-                hata += 1
-            if i % 10 == 0 or i == len(secilen):
-                ilerleme("    özetlendi: %d/%d" % (i, len(secilen)))
+    if kalan:
+        with ThreadPoolExecutor(max_workers=ES_ZAMANLI) as havuz:
+            for i, (m, sonuc, hata) in enumerate(havuz.map(is_, kalan), 2):
+                if sonuc:
+                    m["ozet"] = sonuc
+                    basarili += 1
+                else:
+                    m["ozet"] = _yedek(m)
+                    hatalar.append(hata)
+                if i % 10 == 0 or i == len(secilen):
+                    ilerleme("    özetlendi: %d/%d" % (i, len(secilen)))
 
-    if hata:
-        ilerleme("  %d makale özetlenemedi, abstract sonucu kullanıldı" % hata)
+    if hatalar:
+        from collections import Counter
+        sebep, _ = Counter(hatalar).most_common(1)[0]
+        ilerleme("  %d makale özetlenemedi (%s), abstract sonucu kullanıldı"
+                 % (len(hatalar), sebep))
     return basarili
