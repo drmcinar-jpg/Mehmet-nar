@@ -1,0 +1,10 @@
+# Kisisel ayarlar (API anahtari icerir) — paylasilmaz
+ayarlar.json
+
+# Uretilen ciktilar
+veri/
+rapor/
+
+__pycache__/
+*.pyc
+.DS_Store
